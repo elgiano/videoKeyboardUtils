@@ -1,0 +1,21 @@
+#!/bin/bash
+
+killall sclang -KILL;
+killall scsynth -KILL;
+
+echo -n -e "\033]0;videoKeySC\007";
+
+osascript -e 'tell application "Terminal" to set miniaturized of (every window whose name contains "videoKeySC") to true';
+
+
+/Applications/SuperCollider/SuperCollider.app/Contents/MacOS/sclang /Applications/VideoKeyboard/videoKeyboard2/vk.scd &
+
+/Applications/VideoKeyboard/videoKeyboardText/utils/repeat_run /Applications/VideoKeyboard/videoKeyboard2/bin/videoKeyboardTextDebug.app
+
+killall sclang -KILL;
+killall scsynth -KILL;
+
+osascript -e 'tell application "Terminal" to close (every window whose name contains "videoKeySC")' &
+
+exit 0
+

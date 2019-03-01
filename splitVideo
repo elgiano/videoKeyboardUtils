@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# check arguments
+
+# extract extension
+filename=$(basename "$3");
+extension="${filename##*.}";
+
+for i in $(seq 1 $1); do
+  ffmpeg -ss $(($4+$i*$2)) -i $3 -t $2 -vcodec copy -acodec copy $i.$extension;
+  #echo $(($i*$2));
+done
+#ffmpeg -ss $i*$2 -i $3 -t $2 -vcodec copy -acodec copy $i.$extension

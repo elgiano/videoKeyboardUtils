@@ -1,0 +1,15 @@
+#!/bin/bash
+
+mkdir test;
+
+for filename in ./*.mov; do 
+
+/Applications/ffmpeg -i $filename -map 0:a $filename.audio.wav -map 0:v -c copy $filename.onlyVideo.mov;
+
+sox -v 0.5 $filename.audio.wav $filename.audioRed.wav
+
+/Applications/ffmpeg -y -i $filename.onlyVideo.mov -i $filename.audioRed.wav -shortest -c copy test/$filename;
+
+rm $filename.audio.wav $filename.audioRed.wav  $filename.onlyVideo.mov;
+
+done
