@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#/Users/gnlcelia/dev/openframeworks0.10.1/apps/myApps/videoKeyboard64/bin/sets
+#/Users/gnlcelia/dev/openFrameworks 0.10.1/apps/myApps/videoKeyboard64/bin/sets
 
 from os import listdir, mkdir,rmdir, symlink, remove, rename, system, pardir
 from os.path import isdir, isfile, join, getsize, abspath, isabs,realpath, basename,splitext,exists

@@ -17,21 +17,19 @@
 s.options.outDevice_(nil);
 s.options.sampleRate_(48000);
 s.waitForBoot{
-	SynthDef(\vkSampler){|buf,speed=1,start=0,gate=1,fade_out=0,amp=1,stutterDur=1,stutter=0,stutterPos=0,loop=1,wet=1,wet2=1,anticlickDur=0.005|
+	SynthDef(\vkSampler){|buf,speed=1,t_reset=0,start=0,gate=1,fade_out=0,amp=1,stutterDur=1,stutter=0,t_latchPos=0,stutterPos=0,loop=1,wet=1,wet2=1|
 	var fbPos = LocalIn.ar(1);
 
-		var t_reset = \reset.tr(0);
-		var t_latchPos = \latchPos.tr(0);
 	var numSamples = BufSamples.ir(buf)/BufChannels.ir(buf);
 
-	var latchStart = Latch.ar(fbPos.poll,t_latchPos)/*.poll*/;
+	var latchStart = Latch.ar(fbPos,t_latchPos);
 	var startPos = Select.kr(stutter>0,[start,latchStart-(stutterDur*BufSampleRate.ir(buf))]).clip(0,numSamples);
 	var end = Select.kr(stutter>0,[numSamples,latchStart]).clip(0,numSamples);
 
 	var reset = Select.kr(stutter>0,[0,fbPos>=end + fbPos < startPos ]);
-	var pos = Phasor.ar(t_reset + reset,BufRateScale.kr(buf)*speed,startPos,end,startPos)/*.poll*/;
+	var pos = Phasor.ar(t_reset + reset,BufRateScale.kr(buf)*speed,startPos,end,startPos);
 
-	var anticlickSamples = BufSampleRate.ir(buf)*anticlickDur;
+	var anticlickSamples = BufSampleRate.ir(buf)*0.005;
 	var anticlickIn = (pos-startPos).clip(0,anticlickSamples)/anticlickSamples;
 	var anticlickOut = (pos-end*(-1)).clip(0,anticlickSamples)/anticlickSamples;
 	var anticlick = anticlickIn*anticlickOut;
@@ -70,14 +68,13 @@ s.waitForBoot{
 	)!2;
 
 	var out = SelectX.ar(wet2.linlin(0,0.5,0,1),[out1,en_filt]);
-		var env = EnvGen.kr(Env.asr(anticlickDur,1,fade_out.clip(0.05,10)),gate*(1-Done.kr(rd)),doneAction:2);
 
 	LocalOut.ar(pos);
 	Out.ar(0,
 		//PlayBuf.ar(2,buf,speed,reset+t_reset,start,1)
 		out
 		//LoopBuf.ar(2,buf,speed,t_reset,startPos,startPos,end)
-		*env*amp
+		*EnvGen.kr(Env.asr(0.02,1,fade_out.clip(0.05,10)),gate*(1-Done.kr(rd)),doneAction:2)*amp
 		//*anticlick.poll
 
 	);
@@ -89,8 +86,6 @@ s.waitForBoot{
 		\fade_out: {|val| ~vk.fade_out = val*3},
 		\fade_switch:{|val| ~vk.fade_switch = val!=0},
 		\global_speed:{|val| ~vk.changeAllSpeed(val) },
-		\speedReset:{|val| ~vk.changeAllSpeed(0.5) },
-
 		\speed_reverse:{|val| ~vk.speed_reverse = val!=0;~vk.changeAllSpeed(-1) },
 		\global_volume:{|val| ~vk.changeAllVolume(val)},
 
@@ -231,7 +226,7 @@ s.waitForBoot{
 
 		vk.scrambleSamples();
 
-		//OSCdef(\vkRemoveDeadNodes,{|msg| var node = vk.node.selectIndices{|no| no.nodeID == msg[1]}.first; if(node.notNil){vk.node.removeAt(node)} },"/n_end");
+		OSCdef(\vkRemoveDeadNodes,{|msg| var node = vk.node.selectIndices{|no| no.nodeID == msg[1]}.first; if(node.notNil){vk.node.removeAt(node)} },"/n_end");
 
 
 	};
@@ -251,7 +246,6 @@ s.waitForBoot{
 				if(rms[key].notNil){thisRms = rms[key]}
 			};
 			vk.samples.add(thisBuf);
-			vk.node[vk.samples.size-1] = List[];
 			vk.info.add((volume:1.0,speed:1.0,dyn:1.0,active:false,tapTempo:0,tapSpeed:1.0,stutterDur:0.1,rms:thisRms.postln));
 			vk.sustainedVideos[vk.samples.size-1]  = false;
 			vk.sostenutoVideos[vk.samples.size-1]  = false;
@@ -264,11 +258,7 @@ s.waitForBoot{
 	~vk.loadCapture = {|vk|
 		// dummy, not implemented yet
 		vk.samples.add(Buffer.alloc(s,44100));
-		vk.node[vk.samples.size-1] = List[];
 		vk.info.add((volume:1.0,speed:1.0,dyn:1.0,active:false,tapTempo:0,tapSpeed:1.0,stutterDur:0.1));
-		vk.sustainedVideos[vk.samples.size-1]  = false;
-			vk.sostenutoVideos[vk.samples.size-1]  = false;
-			vk.sostenutoFreezeVideos[vk.samples.size-1]  = false;
 		"placed capture at %\n".postf(vk.samples.size);
 
 	};
@@ -417,11 +407,11 @@ s.waitForBoot{
 			//vk.midiMappings[msg[1]].postln;msg[1].postln
 			if(msg[1]==3){
 				var wet = msg[0].linexp(0,127,0.01,1)-0.001;
-				vk.fxWet = wet; vk.setAll([wet:wet])
+				vk.fxWet = wet; vk.node.do(_.set(\wet,wet))
 			}{
 				if(msg[1]==2){
 				var wet = msg[0].linexp(0,127,0.01,1)-0.001;
-				vk.fxWet2 = wet; vk.setAll([wet2:wet])
+				vk.fxWet2 = wet; vk.node.do(_.set(\wet2,wet))
 			}
 			}
 
@@ -437,13 +427,9 @@ s.waitForBoot{
 
 	~vk.updateLoopMode = {|vk,mode=nil|
 		if(mode.notNil){vk.loop_mode=mode};
-		vk.setAll([loop:if(vk.loop_mode){1}{0}]);
+		vk.node.asArray.do{|node| node.set(\loop,if(vk.loop_mode){1}{0});};
 		if(vk.loop_mode){
-			vk.info.keysValuesDo{|key,v|
-				if((v[\active]).and(vk.node[key].size>0)){
-					vk.playSample(key,v[\dyn],false)
-				};
-			};
+			vk.info.keysValuesDo{|key,v| if((v[\active]).and(vk.node[key].isPlaying.not)){vk.playSample(key,v[\dyn],false)};};
 		}
 	};
 
@@ -456,47 +442,40 @@ s.waitForBoot{
 
 
 	~vk.updateSampleSpeed = {|vk,key|
-		vk.info[key] !? {
+		if(vk.info[key]!=nil){
 			if(vk.info[key][\active]){
-				vk.setAt(key,[speed:vk.getSampleSpeed(key)]);
+				vk.node[key].set(\speed,
+					(vk.masterSpeed*
+						if(vk.dynIsSpeed){vk.dynToSpeed(key)}{1}*
+						if(vk.ribattuto_speed){vk.info[key][\tapSpeed].postln}{1}).postln
+				);
+
 			}
 		}
-	};
-	~vk.getSampleSpeed = {|vk,key|
-		(vk.masterSpeed*
-			if(vk.dynIsSpeed){vk.dynToSpeed(key)}{1}*
-			if(vk.ribattuto_speed){vk.info[key][\tapSpeed].postln}{1}
-		).postln
 	};
 	~vk.updateAllSpeeds = {|vk|
 		vk.samples.indices.do{|k|vk.updateSampleSpeed(k)};
 	};
 	~vk.updateSampleVolume = {|vk,key|
-	    vk.info[key] !? {
-			if(
-				(vk.info[key][\active])
-				.or(vk.sostenutoFreezeVideos[key])
-				.or(vk.sostenutoVideos[key])
-				.or(vk.sustainedVideos[key])
-			){
-				vk.setAt(key,[amp:vk.getSampleVolume(key)])
+		if(vk.info[key]!=nil){
+			if((vk.info[key][\active]).or(vk.sostenutoFreezeVideos[key]).or(vk.sostenutoVideos[key]).or(vk.sustainedVideos[key])){
+				var correction = 1;
+				if(vk.rms_mode){
+					correction = vk.setAvgRms[vk.setNumberFromKey(key)]/(vk.info[key][\rms]?1);
+					if(vk.rms_global){
+						correction = vk.globalAvgRms/(vk.info[key][\rms]?1);
+					};
+					correction = 1+((correction-1)*vk.rms_correction_pct);
+					"#% volume % correction % ".postf(key,vk.masterVolume*if(vk.dynIsVolume){vk.info[key][\dyn]}{1}*correction ,correction);
+					"set % avg: %".postf(vk.setNumberFromKey(key),vk.setAvgRms[vk.setNumberFromKey(key)]);
+					"".postln;
+				};
+
+				vk.node[key].set(\amp,
+					(vk.masterVolume*if(vk.dynIsVolume){vk.info[key][\dyn]}{1}*correction)//.postln
+				)
 			}
 		}
-	};
-
-	~vk.getSampleVolume = {|vk,key|
-		var correction = 1;
-		if(vk.rms_mode){
-			correction = vk.setAvgRms[vk.setNumberFromKey(key)]/(vk.info[key][\rms]?1);
-			if(vk.rms_global){
-				correction = vk.globalAvgRms/(vk.info[key][\rms]?1);
-			};
-			correction = 1+((correction-1)*vk.rms_correction_pct);
-			"#% volume % correction % ".postf(key,vk.masterVolume*if(vk.dynIsVolume){vk.info[key][\dyn]}{1}*correction ,correction);
-			"set % avg: %".postf(vk.setNumberFromKey(key),vk.setAvgRms[vk.setNumberFromKey(key)]);
-					"".postln;
-		};
-		(vk.masterVolume*if(vk.dynIsVolume){vk.info[key][\dyn]}{1}*correction)//.postln
 	};
 
 	~vk.setNumberFromKey ={|vk,key|
@@ -528,18 +507,16 @@ s.waitForBoot{
 
 			if(vk.info[key][\active] || vk.sostenutoFreezeVideos[key]){
 
-				if(onlyDur){vk.setAt(key,[stutterDur:dur.postln])}{
+				if(onlyDur){vk.node[key].set(\stutterDur, dur.postln)}{
 					var start = if(current){
 						// get pos from synth
-						vk.setAt(key,[
-							latchPos:1,
-							start:0,stutter:vk.sostenutoFreezeVideos[key] || vk.harmonic_loops,stutterDur: dur,
-							stutterPos:vk.sostenutoFreezeVideos[key] || vk.harmonic_loops,
-						]);
+						vk.node[key].set(\start,0,\stutter,vk.sostenutoFreezeVideos[key] || vk.harmonic_loops,\stutterDur, dur,
+							\stutterPos,vk.sostenutoFreezeVideos[key] || vk.harmonic_loops,\t_latchPos,1
+						);
 
 					}{
-						vk.setAt(key,[start:0,stutter:(vk.sostenutoFreezeVideos[key] || vk.harmonic_loops).postln,stutterDur: dur,stutterPos:0]);
-						vk.setAt(key,[latchPos:1]);
+						vk.node[key].set(\start,0,\stutter,(vk.sostenutoFreezeVideos[key] || vk.harmonic_loops).postln,\stutterDur, dur,\stutterPos,0);
+						vk.node[key].set(\t_latchPos,1);
 						"setting stutter for key %, val: %, dur:% \n".postf(key,(vk.sostenutoFreezeVideos[key] || vk.harmonic_loops),dur);
 					};
 				};
@@ -619,7 +596,7 @@ s.waitForBoot{
 		var scaled =ctrl.linlin(0.0,1.0,-80,0).dbamp;
 		if(ctrl==0){scaled=0;};
 		vk.masterVolume = scaled;
-		vk.masterVolume;//.postln;
+		vk.masterVolume.postln;
 		vk.updateAllVolumes();
 
 	};
@@ -687,17 +664,6 @@ s.waitForBoot{
 
 	// play/stop
 
-	~vk.setAt = {|vk,key,args|
-		args.postln;
-		vk.node[key].do(_.set(*args))
-	};
-	~vk.setAll = {|vk,args|
-		vk.node.indices.do{|k| vk.setAt(k,args)}
-	};
-	~vk.releaseAt = {|vk,key|
-		vk.node[key].do(_.release)
-	};
-
 	~vk.playSample = {|vk,key,vel,setActive=true|
 
 		("playing sample KEY: % of set: % setstart: %\n").postf(key,vk.activeSet,vk.setStart[vk.activeSet]);
@@ -709,8 +675,19 @@ s.waitForBoot{
 			vk.info[key][\dyn] = vel;
 			if(vk.dynIsVolume){vk.updateSampleVolume(key)};
 
-			if(vk.info[key][\active].not){
+			if(vk.info[key][\active].not || vk.node[key].isPlaying.not){
+				var sampleKey = if(vk.scrambleAudio){vk.scrambledSamples[key]}{key};
+				if(setActive){vk.info[key][\active] = true;};
+				// start playing
+				if(vk.node[key].notNil){vk.node[key].release};
+				vk.node[key] = Synth(\vkSampler,[\buf,vk.samples[sampleKey],\fade_out,if(vk.fade_switch){vk.fadeOut}{0},\loop,vk.loop_mode,\wet,vk.fxWet,\wet2,vk.fxWet2,]);
+				NodeWatcher.register(vk.node[key]);
+				vk.updateSampleSpeed(key);
+				vk.updateSampleVolume(key);
 
+							if(vk.presentationMode){vk.setSostenuto(1)};
+
+			}{
 				if(vk.sustain && vk.ribattuto_speed){
 					// if video is already active and sustain is on (tapping)
 					var now = Date.getDate().rawSeconds;
@@ -720,28 +697,8 @@ s.waitForBoot{
 
 				}{
 					// reset video: TODO
-					//vk.setAt(key,[reset:1]);
-
-					var sampleKey = if(vk.scrambleAudio){vk.scrambledSamples[key]}{key};
-					if(setActive){vk.info[key][\active] = true;};
-					// start playing
-					vk.node[key] !? {vk.releaseAt(key)};
-					vk.node[key].add(
-						Synth(\vkSampler,[
-							buf:vk.samples[sampleKey],fade_out:if(vk.fade_switch){vk.fadeOut}{0},
-							amp:vk.getSampleVolume(sampleKey),speed:vk.getSampleSpeed(key),
-							loop:vk.loop_mode,wet:vk.fxWet,wet2:vk.fxWet2
-						]).onFree{|sy|
-							vk.node[key].remove(sy);
-						}
-					);
-					//NodeWatcher.register(vk.node[key]);
-					//vk.updateSampleSpeed(key);
-					//vk.updateSampleVolume(key);
-
-					if(vk.presentationMode){vk.setSostenuto(1)};
+					vk.node[key].set(\t_reset,1);
 				}
-
 			};
 
 			vk.sustainedVideos[key] = false;
@@ -758,8 +715,7 @@ s.waitForBoot{
 
 			if(vk.sustain.not && vk.sostenutoVideos[key].not && vk.sostenutoFreezeVideos[key].not){
 				// start fadeout
-				vk.setAt(key,[fade_out:vk.fadeOut]);
-				vk.releaseAt(key);
+				vk.node[key].set(\fade_out,vk.fadeOut).release;
 				vk.info[key][\active] = false;
 				"stopped video %\n".postf(key);
 			}{

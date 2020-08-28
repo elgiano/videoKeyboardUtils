@@ -1,14 +1,14 @@
 #!/bin/sh
 app_name=$1
-bin_name=`defaults read ${app_name}/Contents/Info.plist CFBundleExecutable 2>/dev/null`
+bin_name=`defaults read "${app_name}/Contents/Info.plist" CFBundleExecutable 2>/dev/null`
 if [ "${bin_name}" = "" ] ; then
     echo "${app_name} not found" >&2
     exit 2
 fi
-bin_path=${app_name}/Contents/MacOS/${bin_name}
+bin_path="${app_name}/Contents/MacOS/${bin_name}"
 trap "echo manual abort ; exit 1"  1 2 3 15
 while : ; do
-    ${bin_path}
+    "${bin_path}"
     rc=$?
     case $rc in
         0)      exit ${rc} ;;
